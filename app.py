@@ -244,100 +244,244 @@ def dijkstra(grafo, origem, destino):
 
 
 # ─────────────────────────────────────────────
-# 5. VISUALIZAÇÃO DO GRAFO (matplotlib)
+# 5. VISUALIZAÇÃO DO GRAFO (matplotlib – premium)
 # ─────────────────────────────────────────────
-def desenhar_grafo(grafo_nx, caminho, origem, destino, pos):
-    fig, ax = plt.subplots(figsize=(12, 8))
-    fig.patch.set_facecolor("#0d1117")
-    ax.set_facecolor("#0d1117")
+def _cor_por_peso(peso, pmin=6, pmax=25):
+    """Interpola de verde (#56d364) a vermelho (#f85149) conforme o peso."""
+    t = np.clip((peso - pmin) / (pmax - pmin), 0, 1)
+    r = int(0x56 + t * (0xf8 - 0x56))
+    g = int(0xd3 + t * (0x51 - 0xd3))
+    b = int(0x64 + t * (0x49 - 0x64))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
-    # Conjuntos para colorir
-    arestas_caminho = set()
+
+def _glow(ax, x, y, radius, cor, camadas=5):
+    """Desenha halo de brilho em torno de um ponto."""
+    for i in range(camadas, 0, -1):
+        alpha = 0.06 * (camadas - i + 1)
+        r = radius * (1 + i * 0.55)
+        circle = plt.Circle((x, y), r, color=cor, alpha=alpha, zorder=3)
+        ax.add_patch(circle)
+
+
+def desenhar_grafo(grafo_nx, caminho, origem, destino, pos):
+    # ── Figura ────────────────────────────────
+    fig, ax = plt.subplots(figsize=(16, 10))
+    fig.patch.set_facecolor("#080c14")
+    ax.set_facecolor("#080c14")
+
+    # limites do canvas
+    xs = [p[0] for p in pos.values()]
+    ys = [p[1] for p in pos.values()]
+    ax.set_xlim(min(xs) - 0.12, max(xs) + 0.12)
+    ax.set_ylim(min(ys) - 0.12, max(ys) + 0.12)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # ── Grade de fundo suave ──────────────────
+    for gx in np.linspace(min(xs) - 0.12, max(xs) + 0.12, 18):
+        ax.axvline(gx, color="#1a2035", linewidth=0.4, zorder=0)
+    for gy in np.linspace(min(ys) - 0.12, max(ys) + 0.12, 12):
+        ax.axhline(gy, color="#1a2035", linewidth=0.4, zorder=0)
+
+    # ── Conjuntos do caminho ──────────────────
+    caminho_set   = set(caminho)
+    arestas_rota  = set()
     if len(caminho) > 1:
         for i in range(len(caminho) - 1):
-            arestas_caminho.add((caminho[i], caminho[i + 1]))
-            arestas_caminho.add((caminho[i + 1], caminho[i]))
+            arestas_rota.add((caminho[i], caminho[i + 1]))
+            arestas_rota.add((caminho[i + 1], caminho[i]))
 
-    # Arestas normais
-    arestas_normais = [(u, v) for u, v in grafo_nx.edges()
-                       if (u, v) not in arestas_caminho]
-    nx.draw_networkx_edges(
-        grafo_nx, pos,
-        edgelist=arestas_normais,
-        edge_color="#2a3142",
-        width=1.5,
-        ax=ax,
-        alpha=0.8,
-    )
+    pesos_dict = nx.get_edge_attributes(grafo_nx, "weight")
 
-    # Arestas do caminho ótimo
-    if arestas_caminho:
-        arestas_dest = [(u, v) for u, v in grafo_nx.edges() if (u, v) in arestas_caminho]
-        nx.draw_networkx_edges(
-            grafo_nx, pos,
-            edgelist=arestas_dest,
-            edge_color="#f0a500",
-            width=4,
-            ax=ax,
-            alpha=1.0,
-        )
+    # ── 1. Arestas fora da rota ───────────────
+    for u, v in grafo_nx.edges():
+        if (u, v) in arestas_rota:
+            continue
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        peso = pesos_dict.get((u, v), pesos_dict.get((v, u), 10))
+        cor = _cor_por_peso(peso)
+        ax.plot([x0, x1], [y0, y1], color=cor, linewidth=1.2,
+                alpha=0.30, solid_capstyle="round", zorder=1)
 
-    # Cores dos nós
-    cores_nos = []
+        # rótulo de peso pequeno
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        ax.text(mx, my, str(peso),
+                fontsize=6, color="#3d4a5c", ha="center", va="center",
+                fontfamily="monospace", zorder=2,
+                bbox=dict(boxstyle="round,pad=0.15", fc="#080c14", ec="none", alpha=0.75))
+
+    # ── 2. Glow difuso na rota (várias camadas) ──
+    if arestas_rota:
+        for u, v in grafo_nx.edges():
+            if (u, v) not in arestas_rota:
+                continue
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            for largura, alfa in [(18, 0.04), (12, 0.07), (7, 0.12), (4, 0.25)]:
+                ax.plot([x0, x1], [y0, y1], color="#f0a500",
+                        linewidth=largura, alpha=alfa,
+                        solid_capstyle="round", zorder=3)
+
+        # ── 3. Linha da rota (núcleo nítido) ──────
+        for u, v in grafo_nx.edges():
+            if (u, v) not in arestas_rota:
+                continue
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            peso = pesos_dict.get((u, v), pesos_dict.get((v, u), 10))
+            ax.plot([x0, x1], [y0, y1], color="#f0a500",
+                    linewidth=2.8, alpha=1.0,
+                    solid_capstyle="round", zorder=4)
+            # rótulo de peso na rota em destaque
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+            ax.text(mx, my, f"{peso} min",
+                    fontsize=7.5, color="#f0a500", ha="center", va="center",
+                    fontfamily="monospace", fontweight="bold", zorder=5,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="#0d0f1a",
+                              ec="#f0a50060", linewidth=0.8, alpha=0.95))
+
+    # ── 4. Nós ────────────────────────────────
+    NODE_R = 0.022   # raio visual (em unidades de dados)
+
     for n in grafo_nx.nodes():
+        x, y = pos[n]
+        em_rota = n in caminho_set
+
         if n == origem:
-            cores_nos.append("#56d364")
+            cor_fill  = "#56d364"
+            cor_anel  = "#9be9a8"
+            cor_glow  = "#56d364"
+            zord      = 9
         elif n == destino:
-            cores_nos.append("#f85149")
-        elif n in caminho:
-            cores_nos.append("#f0a500")
+            cor_fill  = "#f85149"
+            cor_anel  = "#ff8183"
+            cor_glow  = "#f85149"
+            zord      = 9
+        elif em_rota:
+            cor_fill  = "#f0a500"
+            cor_anel  = "#ffd166"
+            cor_glow  = "#f0a500"
+            zord      = 8
         else:
-            cores_nos.append("#21293a")
+            cor_fill  = "#1a2235"
+            cor_anel  = "#2d3a50"
+            cor_glow  = "#3d4f6e"
+            zord      = 6
 
-    nx.draw_networkx_nodes(
-        grafo_nx, pos,
-        node_color=cores_nos,
-        node_size=600,
-        ax=ax,
-    )
+        # glow
+        if em_rota or n in (origem, destino):
+            _glow(ax, x, y, NODE_R, cor_glow, camadas=6)
 
-    # Labels dos nós (abreviados)
-    labels = {n: n.replace(" ", "\n") for n in grafo_nx.nodes()}
-    nx.draw_networkx_labels(
-        grafo_nx, pos,
-        labels=labels,
-        font_color="#e6edf3",
-        font_size=7,
-        font_family="monospace",
-        ax=ax,
-    )
+        # sombra do nó
+        sombra = plt.Circle((x + 0.004, y - 0.004), NODE_R,
+                             color="#000000", alpha=0.45, zorder=zord - 1)
+        ax.add_patch(sombra)
 
-    # Pesos das arestas
-    pesos = nx.get_edge_attributes(grafo_nx, "weight")
-    nx.draw_networkx_edge_labels(
-        grafo_nx, pos,
-        edge_labels=pesos,
-        font_color="#8892a4",
-        font_size=7,
-        ax=ax,
-        bbox=dict(boxstyle="round,pad=0.15", fc="#0d1117", ec="none", alpha=0.8),
-    )
+        # anel externo
+        anel = plt.Circle((x, y), NODE_R * 1.22, color=cor_anel,
+                          alpha=0.55 if em_rota or n in (origem, destino) else 0.25,
+                          zorder=zord)
+        ax.add_patch(anel)
 
-    # Legenda
-    legenda = [
-        mpatches.Patch(color="#56d364", label="Origem (CD)"),
-        mpatches.Patch(color="#f85149", label="Destino"),
-        mpatches.Patch(color="#f0a500", label="Caminho ótimo"),
-        mpatches.Patch(color="#21293a", label="Outros bairros"),
+        # círculo principal
+        circulo = plt.Circle((x, y), NODE_R, color=cor_fill,
+                             alpha=1.0, zorder=zord + 1)
+        ax.add_patch(circulo)
+
+    # ── 5. Rótulos dos nós ───────────────────
+    # Direção de offset para evitar sobreposição com arestas
+    OFFSETS = {
+        "Barra do Ceará": (-0.065, +0.028),
+        "Centro":         (-0.058,  0.000),
+        "Benfica":        (+0.000, +0.030),
+        "Fátima":         (+0.058,  0.000),
+        "Parangaba":      (-0.060,  0.000),
+        "Mondubim":       (-0.058,  0.000),
+        "Maraponga":      (+0.000, -0.030),
+        "Messejana":      (+0.000, -0.030),
+        "Aldeota":        (+0.000, +0.030),
+        "Dionísio Torres":(+0.000, -0.032),
+        "Meireles":       (+0.000, +0.030),
+        "Varjota":        (+0.055, +0.000),
+        "Papicu":         (+0.055, +0.000),
+        "Cocó":           (+0.050, +0.000),
+        "Cidade 2000":    (+0.068, +0.000),
+        "Mucuripe":       (+0.055, +0.000),
+    }
+
+    for n in grafo_nx.nodes():
+        x, y = pos[n]
+        ox, oy = OFFSETS.get(n, (0.0, 0.032))
+        em_rota = n in caminho_set
+        is_endpoint = n in (origem, destino)
+
+        cor_txt  = "#ffffff" if is_endpoint else ("#ffd166" if em_rota else "#7a8899")
+        fontsize = 8.5 if is_endpoint else (8.0 if em_rota else 7.0)
+        fw       = "bold" if (em_rota or is_endpoint) else "normal"
+
+        ax.text(x + ox, y + oy, n,
+                fontsize=fontsize, color=cor_txt, ha="center", va="center",
+                fontfamily="monospace", fontweight=fw, zorder=12,
+                bbox=dict(boxstyle="round,pad=0.22",
+                          fc="#080c14" if not is_endpoint else "#0d1117",
+                          ec=("#f0a500" if em_rota and not is_endpoint
+                              else ("#56d364" if n == origem
+                              else ("#f85149" if n == destino else "none"))),
+                          linewidth=0.9, alpha=0.92))
+
+    # ── 6. Ícones de origem/destino ──────────
+    ox_orig, oy_orig = pos[origem]
+    ox_dest, oy_dest = pos[destino]
+    ax.text(ox_orig, oy_orig, "▲",
+            fontsize=9, color="#080c14", ha="center", va="center",
+            fontweight="bold", zorder=13)
+    ax.text(ox_dest, oy_dest, "★",
+            fontsize=9, color="#080c14", ha="center", va="center",
+            fontweight="bold", zorder=13)
+
+    # ── 7. Legenda ────────────────────────────
+    leg_items = [
+        mpatches.Patch(facecolor="#56d364", edgecolor="#9be9a8", label="▲ Origem (CD)"),
+        mpatches.Patch(facecolor="#f85149", edgecolor="#ff8183", label="★ Destino"),
+        mpatches.Patch(facecolor="#f0a500", edgecolor="#ffd166", label="  Rota ótima"),
+        mpatches.Patch(facecolor="#1a2235", edgecolor="#2d3a50", label="  Outros bairros"),
     ]
-    ax.legend(handles=legenda, loc="lower left",
-              facecolor="#161b27", edgecolor="#2a3142",
-              labelcolor="#c9d1d9", fontsize=9)
+    leg = ax.legend(
+        handles=leg_items,
+        loc="lower left",
+        facecolor="#0d1117",
+        edgecolor="#2a3142",
+        labelcolor="#c9d1d9",
+        fontsize=9,
+        framealpha=0.95,
+        borderpad=1.0,
+        handlelength=1.4,
+    )
+    leg.get_frame().set_linewidth(0.8)
 
-    ax.set_title("Grafo de Entregas – Fortaleza/CE",
-                 color="#f0a500", fontsize=14, pad=12, fontweight="bold")
-    ax.axis("off")
-    plt.tight_layout()
+    # ── 8. Barra de escala de cor (pesos) ────
+    import matplotlib.cm as cm
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list("peso", ["#56d364", "#f0a500", "#f85149"])
+    sm   = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=6, vmax=25))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, orientation="horizontal",
+                        fraction=0.025, pad=0.01, aspect=30,
+                        location="bottom")
+    cbar.set_label("Tempo da aresta (min)", color="#8892a4", fontsize=8)
+    cbar.ax.xaxis.set_tick_params(color="#8892a4", labelsize=7, labelcolor="#8892a4")
+    cbar.outline.set_edgecolor("#2a3142")
+
+    # ── 9. Título ─────────────────────────────
+    ax.set_title(
+        "Grafo de Entregas — Fortaleza / CE",
+        color="#f0a500", fontsize=15, pad=16,
+        fontweight="bold", fontfamily="monospace",
+    )
+
+    plt.tight_layout(pad=1.5)
     return fig
 
 
